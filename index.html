@@ -55,12 +55,25 @@
                 font-size: 14px;
             }
 
-            .flex {
+            /* 冲突检测台主容器：移动端垂直布局 */
+            #view-checker {
                 flex-direction: column;
             }
 
-            .w-1/3,
-            .w-2/3 {
+            /* 添加药物和当前清单的容器：移动端水平布局 */
+            #view-checker>.w-1\/3 {
+                width: 100%;
+                flex-direction: row !important;
+            }
+
+            /* 添加药物和当前清单各占50% */
+            #view-checker>.w-1\/3>div {
+                width: 50%;
+                flex: 0 0 50%;
+            }
+
+            /* 检测报告：移动端全宽 */
+            #view-checker>.w-2\/3 {
                 width: 100%;
             }
 
@@ -380,15 +393,12 @@
                         const idB = cart[j].id;
 
                         const match = INTERACTIONS.find(rule =>
-                            (rule.pair.includes(idA) && rule.pair.includes(idB))
+                            (rule.pair[0] === idA && rule.pair[1] === idB) ||
+                            (rule.pair[0] === idB && rule.pair[1] === idA)
                         );
 
                         if (match) {
-                            foundInteractions.push({
-                                drugA: cart[i],
-                                drugB: cart[j],
-                                rule: match
-                            });
+                            foundInteractions.push({ drugs: [cart[i], cart[j]], rule: match });
                         }
                     }
                 }
