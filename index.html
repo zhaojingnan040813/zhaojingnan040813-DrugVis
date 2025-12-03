@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>药物相互作用可视化查询系统 - 产品原型</title>
+    <!-- 引入 Tailwind CSS 用于快速布局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 AntV G6 用于图谱可视化 -->
+    <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.8.24/dist/g6.min.js"></script>
+    <!-- 引入 FontAwesome 用于图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .tab-active {
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+            font-weight: 600;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+
+        #mountNode canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- 1. 顶部导航栏 -->
+    <header class="bg-white shadow-sm z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fa-solid fa-capsules text-blue-600 text-2xl mr-3"></i>
+                    <span class="font-bold text-xl text-gray-800">DrugVis <span
+                            class="text-xs text-gray-500 font-normal ml-2">药物相互作用科普平台</span></span>
+                </div>
+                <div class="flex space-x-8">
+                    <button onclick="switchTab('checker')" id="tab-checker"
+                        class="tab-active inline-flex items-center px-1 pt-1 text-sm text-gray-900 focus:outline-none transition">
+                        <i class="fa-solid fa-shield-virus mr-2"></i> 冲突检测台
+                    </button>
+                    <button onclick="switchTab('graph')" id="tab-graph"
+                        class="inline-flex items-center px-1 pt-1 text-sm text-gray-500 hover:text-gray-700 focus:outline-none transition">
+                        <i class="fa-solid fa-project-diagram mr-2"></i> 知识图谱
+                    </button>
+                </div>
+                <div class="flex items-center">
+                    <span class="text-sm text-gray-500 mr-4">欢迎，用户</span>
+                    <div class="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 2. 主内容区域 -->
+    <main class="flex-1 relative">
+
+        <!-- 视图 A: 冲突检测台 -->
+        <div id="view-checker"
+            class="absolute inset-0 p-6 flex gap-6 max-w-7xl mx-auto w-full transition-opacity duration-300">
+
+            <!-- 左侧：操作面板 -->
+            <div class="w-1/3 flex flex-col gap-4">
+                <!-- 搜索添加 -->
+                <div class="bg-white rounded-xl shadow-sm p-5 flex-none">
+                    <h3 class="text-sm font-semibold text-gray-500 mb-3 uppercase tracking-wider">添加药物</h3>
+                    <div class="relative">
+                        <input type="text" id="drug-search" placeholder="输入药名 (如: 头孢, 酒精...)"
+                            class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                            onkeyup="handleSearch(event)">
+                        <i class="fa-solid fa-search absolute left-3 top-3 text-gray-400"></i>
+
+                        <!-- 模拟搜索下拉结果 -->
+                        <div id="search-dropdown"
+                            class="hidden absolute w-full bg-white border border-gray-100 shadow-lg rounded-lg mt-1 z-20 max-h-48 overflow-y-auto">
+                            <!-- 动态填充 -->
+                        </div>
+                    </div>
+                    <div class="mt-2 text-xs text-gray-400">
+                        试试搜索: "头孢", "阿司匹林", "酒精", "布洛芬"
+                    </div>
+                </div>
+
+                <!-- 药物清单 (购物车) -->
+                <div class="bg-white rounded-xl shadow-sm p-5 flex-1 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">当前清单 <span
+                                id="cart-count"
+                                class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full ml-1">0</span></h3>
+                        <button onclick="clearCart()" class="text-xs text-red-400 hover:text-red-600">清空</button>
+                    </div>
+
+                    <div id="drug-cart" class="flex-1 overflow-y-auto space-y-2 pr-1">
+                        <!-- 空状态 -->
+                        <div id="cart-empty"
+                            class="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-100 rounded-lg">
+                            <i class="fa-solid fa-basket-shopping text-3xl mb-2 opacity-50"></i>
+                            <p class="text-sm">清单是空的</p>
+                        </div>
+                    </div>
+
+                    <button onclick="analyzeInteractions()"
+                        class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg shadow-lg shadow-blue-500/30 transition transform active:scale-95 flex items-center justify-center">
+                        <i class="fa-solid fa-flask mr-2"></i> 开始分析冲突
+                    </button>
+                </div>
+            </div>
+
+            <!-- 右侧：检测报告 -->
+            <div class="w-2/3 bg-white rounded-xl shadow-sm p-6 flex flex-col relative overflow-hidden">
+                <div class="border-b border-gray-100 pb-4 mb-4 flex justify-between items-end">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800">检测报告</h2>
+                        <p class="text-sm text-gray-500 mt-1" id="report-status">请在左侧添加药物并点击分析...</p>
+                    </div>
+                    <div id="risk-badge"
+                        class="hidden px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-700">
+                        <i class="fa-solid fa-check-circle mr-1"></i> 安全
+                    </div>
+                </div>
+
+                <div id="report-content" class="flex-1 overflow-y-auto pr-2">
+                    <!-- 默认插图 -->
+                    <div class="h-full flex flex-col items-center justify-center opacity-60">
+                        <img src="https://cdn-icons-png.flaticon.com/512/2854/2854271.png" width="120" alt="Analysis"
+                            class="mb-6 opacity-50 grayscale">
+                        <p class="text-gray-400 text-lg">等待数据输入...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 视图 B: 知识图谱 -->
+        <div id="view-graph" class="absolute inset-0 hidden flex flex-col">
+            <!-- 工具栏 -->
+            <div class="h-14 bg-white border-b border-gray-200 px-6 flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <span class="text-gray-500 text-sm">当前中心:</span>
+                    <span class="font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-md">阿司匹林 (Aspirin)</span>
+                    <button class="text-blue-500 text-sm hover:underline" onclick="randomizeGraph()">
+                        <i class="fa-solid fa-shuffle mr-1"></i> 随机切换
+                    </button>
+                </div>
+                <div class="flex items-center space-x-4 text-xs">
+                    <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-red-500 mr-2"></span> 禁止混用</div>
+                    <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-orange-400 mr-2"></span> 慎重使用
+                    </div>
+                    <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-blue-300 mr-2"></span> 安全关联
+                    </div>
+                </div>
+            </div>
+
+            <!-- G6 容器 -->
+            <div class="flex-1 relative bg-slate-50">
+                <div id="mountNode" class="w-full h-full"></div>
+
+                <!-- 悬浮详情卡片 (模拟) -->
+                <div id="graph-tooltip"
+                    class="absolute top-4 right-4 w-64 bg-white p-4 rounded-lg shadow-xl border border-gray-100 hidden">
+                    <h4 class="font-bold text-gray-800 border-b pb-2 mb-2">节点详情</h4>
+                    <div class="space-y-2 text-sm">
+                        <p class="text-gray-500">名称: <span class="text-gray-800 font-medium" id="tooltip-name">--</span>
+                        </p>
+                        <p class="text-gray-500">分类: <span class="text-gray-800" id="tooltip-category">--</span></p>
+                        <p class="text-gray-500 mt-2 text-xs leading-relaxed" id="tooltip-desc">--</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JS 逻辑 -->
+    <script>
+        // --- 模拟数据 ---
+        const MOCK_DB = [
+            { id: 1, name: '头孢拉定', category: '抗生素', icon: '💊' },
+            { id: 2, name: '阿司匹林', category: '解热镇痛', icon: '💊' },
+            { id: 3, name: '布洛芬', category: '解热镇痛', icon: '💊' },
+            { id: 4, name: '华法林', category: '抗凝血', icon: '🩸' },
+            { id: 5, name: '酒精 (乙醇)', category: '食品/饮品', icon: '🍺' },
+            { id: 6, name: '硝苯地平', category: '降压药', icon: '💊' },
+            { id: 7, name: '西柚 (葡萄柚)', category: '水果', icon: '🍊' },
+        ];
+
+        // 模拟冲突规则 (ID pairs)
+        const INTERACTIONS = [
+            { pair: [1, 5], level: 'danger', title: '双硫仑样反应', desc: '极其危险！可能导致面部潮红、头痛、胸闷，甚至休克死亡。' },
+            { pair: [2, 4], level: 'warning', title: '出血风险增加', desc: '两者均有抗凝作用，合用可能导致严重的出血倾向。' },
+            { pair: [2, 5], level: 'warning', title: '胃黏膜损伤', desc: '酒精会加重阿司匹林对胃黏膜的刺激，可能引发出血。' },
+            { pair: [3, 2], level: 'caution', title: '药效拮抗', desc: '布洛芬可能会干扰阿司匹林的心血管保护作用。' },
+            { pair: [6, 7], level: 'danger', title: '严重低血压', desc: '西柚汁会抑制代谢酶，导致药物浓度飙升，引发低血压休克。' }
+        ];
+
+        let cart = [];
+        let graphInstance = null;
+
+        // --- 页面切换逻辑 ---
+        function switchTab(tab) {
+            document.querySelectorAll('button[id^="tab-"]').forEach(el => {
+                el.classList.remove('tab-active', 'text-gray-900');
+                el.classList.add('text-gray-500');
+            });
+            document.getElementById(`tab-${tab}`).classList.add('tab-active', 'text-gray-900');
+            document.getElementById(`tab-${tab}`).classList.remove('text-gray-500');
+
+            if (tab === 'checker') {
+                document.getElementById('view-checker').classList.remove('hidden');
+                document.getElementById('view-graph').classList.add('hidden');
+            } else {
+                document.getElementById('view-checker').classList.add('hidden');
+                document.getElementById('view-graph').classList.remove('hidden');
+                if (!graphInstance) initGraph(); // 懒加载图谱
+            }
+        }
+
+        // --- 冲突检测台逻辑 ---
+
+        function handleSearch(e) {
+            const val = e.target.value.trim();
+            const dropdown = document.getElementById('search-dropdown');
+
+            if (!val) {
+                dropdown.classList.add('hidden');
+                return;
+            }
+
+            const results = MOCK_DB.filter(d => d.name.includes(val));
+            dropdown.innerHTML = '';
+            dropdown.classList.remove('hidden');
+
+            if (results.length === 0) {
+                dropdown.innerHTML = '<div class="p-3 text-sm text-gray-400">未找到相关药物</div>';
+            } else {
+                results.forEach(drug => {
+                    const item = document.createElement('div');
+                    item.className = 'p-3 hover:bg-gray-50 cursor-pointer flex justify-between items-center border-b border-gray-50 last:border-0';
+                    item.innerHTML = `
+                        <span class="text-sm text-gray-700">${drug.icon} ${drug.name}</span>
+                        <span class="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">${drug.category}</span>
+                    `;
+                    item.onclick = () => addToCart(drug);
+                    dropdown.appendChild(item);
+                });
+            }
+        }
+
+        function addToCart(drug) {
+            if (cart.find(d => d.id === drug.id)) return;
+            cart.push(drug);
+            renderCart();
+            document.getElementById('search-dropdown').classList.add('hidden');
+            document.getElementById('drug-search').value = '';
+        }
+
+        function renderCart() {
+            const container = document.getElementById('drug-cart');
+            const countBadge = document.getElementById('cart-count');
+
+            countBadge.innerText = cart.length;
+
+            if (cart.length === 0) {
+                container.innerHTML = `
+                    <div id="cart-empty" class="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-100 rounded-lg">
+                        <i class="fa-solid fa-basket-shopping text-3xl mb-2 opacity-50"></i>
+                        <p class="text-sm">清单是空的</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = '';
+            cart.forEach(drug => {
+                const el = document.createElement('div');
+                el.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100 group';
+                el.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="text-xl mr-3">${drug.icon}</span>
+                        <div>
+                            <div class="text-sm font-medium text-gray-800">${drug.name}</div>
+                            <div class="text-xs text-gray-400">${drug.category}</div>
+                        </div>
+                    </div>
+                    <button onclick="removeFromCart(${drug.id})" class="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        function removeFromCart(id) {
+            cart = cart.filter(d => d.id !== id);
+            renderCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            renderCart();
+            document.getElementById('report-content').innerHTML = `
+                <div class="h-full flex flex-col items-center justify-center opacity-60">
+                    <img src="https://cdn-icons-png.flaticon.com/512/2854/2854271.png" width="120" alt="Analysis" class="mb-6 opacity-50 grayscale">
+                    <p class="text-gray-400 text-lg">等待数据输入...</p>
+                </div>
+            `;
+            document.getElementById('risk-badge').classList.add('hidden');
+            document.getElementById('report-status').innerText = '请在左侧添加药物并点击分析...';
+        }
+
+        function analyzeInteractions() {
+            if (cart.length < 2) {
+                alert("请至少添加两种药物进行比对");
+                return;
+            }
+
+            const container = document.getElementById('report-content');
+            const status = document.getElementById('report-status');
+            const badge = document.getElementById('risk-badge');
+
+            container.innerHTML = '<div class="flex items-center justify-center h-full"><i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500"></i></div>';
+
+            // 模拟 API 延迟
+            setTimeout(() => {
+                let foundInteractions = [];
+
+                // 简单的双重循环检测算法
+                for (let i = 0; i < cart.length; i++) {
+                    for (let j = i + 1; j < cart.length; j++) {
+                        const idA = cart[i].id;
+                        const idB = cart[j].id;
+
+                        const match = INTERACTIONS.find(rule =>
+                            (rule.pair.includes(idA) && rule.pair.includes(idB))
+                        );
+
+                        if (match) {
+                            foundInteractions.push({
+                                drugA: cart[i],
+                                drugB: cart[j],
+                                rule: match
+                            });
+                        }
+                    }
+                }
+
+                renderReport(foundInteractions);
+            }, 600);
+        }
+
+        function renderReport(results) {
+            const container = document.getElementById('report-content');
+            const status = document.getElementById('report-status');
+            const badge = document.getElementById('risk-badge');
+
+            container.innerHTML = '';
+            badge.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700', 'bg-orange-100', 'text-orange-700');
+
+            if (results.length === 0) {
+                status.innerText = `分析完成：${cart.length} 种药物`;
+                badge.innerText = '安全';
+                badge.classList.add('bg-green-100', 'text-green-700');
+                container.innerHTML = `
+                    <div class="text-center mt-10">
+                        <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 text-green-500 mb-4">
+                            <i class="fa-solid fa-shield-heart text-4xl"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800">未发现明显相互作用</h3>
+                        <p class="text-gray-500 mt-2 text-sm">基于当前数据库，所选组合暂无已知的高风险冲突。</p>
+                    </div>
+                `;
+            } else {
+                status.innerText = `分析完成：发现 ${results.length} 处潜在冲突`;
+                badge.innerText = '存在风险';
+                badge.classList.add('bg-red-100', 'text-red-700');
+
+                results.forEach(item => {
+                    const colorClass = item.rule.level === 'danger' ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50';
+                    const iconClass = item.rule.level === 'danger' ? 'text-red-500' : 'text-orange-500';
+                    const badgeText = item.rule.level === 'danger' ? '禁止混用' : '慎重使用';
+                    const badgeClass = item.rule.level === 'danger' ? 'bg-red-200 text-red-800' : 'bg-orange-200 text-orange-800';
+
+                    const card = document.createElement('div');
+                    card.className = `p-4 rounded-lg border ${colorClass} mb-4 relative overflow-hidden`;
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-2 relative z-10">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-2xl">${item.drugA.icon}</span>
+                                <i class="fa-solid fa-xmark text-gray-400 text-sm"></i>
+                                <span class="text-2xl">${item.drugB.icon}</span>
+                            </div>
+                            <span class="px-2 py-0.5 rounded text-xs font-bold ${badgeClass}">${badgeText}</span>
+                        </div>
+                        <h4 class="font-bold text-gray-800 text-lg flex items-center">
+                            <i class="fa-solid fa-triangle-exclamation ${iconClass} mr-2"></i> ${item.rule.title}
+                        </h4>
+                        <p class="text-sm text-gray-600 mt-1 leading-relaxed">
+                            ${item.rule.desc}
+                        </p>
+                        <div class="mt-3 text-xs text-gray-500 flex items-center">
+                            冲突源: <span class="font-medium mx-1">${item.drugA.name}</span> 与 <span class="font-medium mx-1">${item.drugB.name}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            }
+        }
+
+        // --- 知识图谱 (AntV G6) ---
+
+        function initGraph() {
+            const container = document.getElementById('mountNode');
+            const width = container.scrollWidth;
+            const height = container.scrollHeight || 600;
+
+            // 模拟图谱数据
+            const data = {
+                nodes: [
+                    { id: '1', label: '阿司匹林', comboId: 'A', style: { fill: '#3b82f6', stroke: '#2563eb' }, labelCfg: { style: { fill: '#fff' } } },
+                    { id: '2', label: '华法林', comboId: 'A' },
+                    { id: '3', label: '酒精', comboId: 'B' },
+                    { id: '4', label: '布洛芬', comboId: 'A' },
+                    { id: '5', label: '甲氨蝶呤', comboId: 'C' },
+                    { id: '6', label: '银杏叶提取物', comboId: 'C' }
+                ],
+                edges: [
+                    { source: '1', target: '2', label: '出血风险', style: { stroke: '#f59e0b', lineWidth: 2 } },
+                    { source: '1', target: '3', label: '胃出血', style: { stroke: '#ef4444', lineWidth: 2 } },
+                    { source: '1', target: '4', label: '药效降低', style: { stroke: '#94a3b8' } },
+                    { source: '2', target: '6', label: '抗凝增强', style: { stroke: '#f59e0b' } },
+                    { source: '1', target: '5', label: '毒性增加', style: { stroke: '#ef4444' } }
+                ]
+            };
+
+            graphInstance = new G6.Graph({
+                container: 'mountNode',
+                width,
+                height,
+                modes: {
+                    default: ['drag-canvas', 'zoom-canvas', 'drag-node'],
+                },
+                layout: {
+                    type: 'force',
+                    preventOverlap: true,
+                    linkDistance: 150,
+                    nodeStrength: -30,
+                },
+                defaultNode: {
+                    size: 60,
+                    style: {
+                        fill: '#e0f2fe',
+                        stroke: '#7dd3fc',
+                        lineWidth: 2,
+                    },
+                    labelCfg: {
+                        style: {
+                            fill: '#0f172a',
+                            fontSize: 12,
+                            fontWeight: 600
+                        }
+                    }
+                },
+                defaultEdge: {
+                    style: {
+                        endArrow: {
+                            path: G6.Arrow.triangle(),
+                            fill: '#cbd5e1',
+                        },
+                        stroke: '#cbd5e1'
+                    },
+                    labelCfg: {
+                        autoRotate: true,
+                        style: {
+                            fill: '#64748b',
+                            fontSize: 10,
+                            background: {
+                                fill: '#ffffff',
+                                padding: [2, 2, 2, 2],
+                                radius: 2,
+                            },
+                        }
+                    }
+                }
+            });
+
+            graphInstance.data(data);
+            graphInstance.render();
+
+            // 监听节点点击
+            graphInstance.on('node:click', (e) => {
+                const model = e.item.getModel();
+                showTooltip(model);
+            });
+
+            // 监听画布点击隐藏 tooltip
+            graphInstance.on('canvas:click', () => {
+                document.getElementById('graph-tooltip').classList.add('hidden');
+            });
+
+            // 窗口 resize
+            window.onresize = () => {
+                if (!graphInstance || graphInstance.get('destroyed')) return;
+                if (!container || !container.scrollWidth || !container.scrollHeight) return;
+                graphInstance.changeSize(container.scrollWidth, container.scrollHeight);
+            };
+        }
+
+        function showTooltip(model) {
+            const tooltip = document.getElementById('graph-tooltip');
+            document.getElementById('tooltip-name').innerText = model.label;
+            document.getElementById('tooltip-category').innerText = '模拟分类';
+            document.getElementById('tooltip-desc').innerText = `这里显示 ${model.label} 的详细药理作用描述...`;
+            tooltip.classList.remove('hidden');
+        }
+
+        function randomizeGraph() {
+            if (graphInstance) {
+                graphInstance.layout(); // 重新布局模拟刷新
+            }
+        }
+    </script>
+</body>
+
+</html>
